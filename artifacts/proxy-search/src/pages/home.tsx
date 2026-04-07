@@ -15,7 +15,7 @@ const QUICK_LINKS = [
   { name: "Twitch", url: "https://www.twitch.tv", icon: SiTwitch, color: "#9146FF" },
   { name: "Netflix", url: "https://www.netflix.com", icon: SiNetflix, color: "#E50914" },
   { name: "Daydream", url: "https://daydreamx.pro", icon: Globe, color: "#7C3AED" },
-  { name: "Top Eagle", url: "https://topeaglerservers.com", icon: Globe, color: "#D97706" },
+  { name: "Eaglercraft", url: "https://topeaglerservers.com", icon: Globe, color: "#D97706" },
 ];
 
 const suggestions = [
