@@ -139,7 +139,42 @@ router.get("/proxy", async (req, res): Promise<void> => {
     }
   } catch (err) {
     req.log.error({ err, targetUrl }, "Proxy fetch failed");
-    res.status(502).json({ error: "Failed to fetch the requested URL" });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const isTimeout = errMsg.includes("Timeout") || errMsg.includes("timeout");
+    const isNotFound = errMsg.includes("ENOTFOUND") || errMsg.includes("getaddrinfo");
+    const reason = isNotFound
+      ? "The website address could not be found. It may not exist or the URL might be wrong."
+      : isTimeout
+      ? "The website took too long to respond. It may be down or blocking the proxy."
+      : "The website could not be reached. It may be blocking proxies or is temporarily unavailable.";
+    res.status(502).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Could not load page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .card { background: white; border-radius: 16px; padding: 40px 36px; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+    .icon { width: 56px; height: 56px; background: #fef2f2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 26px; }
+    h1 { font-size: 20px; font-weight: 700; color: #1e1e2e; margin-bottom: 10px; }
+    p { font-size: 14px; color: #6b7280; line-height: 1.6; margin-bottom: 8px; }
+    .url { font-size: 12px; color: #9ca3af; word-break: break-all; background: #f9fafb; border-radius: 8px; padding: 8px 12px; margin: 16px 0; }
+    .btn { display: inline-block; margin-top: 20px; padding: 10px 24px; background: #5046e4; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; }
+    .btn:hover { background: #3d35c8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">&#x26A0;&#xFE0F;</div>
+    <h1>Could not load this page</h1>
+    <p>${reason}</p>
+    <div class="url">${targetUrl}</div>
+    <a class="btn" href="/">Go back to FreeSearch</a>
+  </div>
+</body>
+</html>`);
   }
 });
 
