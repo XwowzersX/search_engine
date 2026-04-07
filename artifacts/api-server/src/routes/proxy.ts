@@ -25,6 +25,94 @@ function rewriteUrl(url: string, base: string, proxyBase: string): string {
   return `${proxyBase}${encodeURIComponent(absolute)}`;
 }
 
+function buildInjectedScript(baseUrl: string, proxyBase: string): string {
+  return `<script>
+(function() {
+  var BASE = ${JSON.stringify(baseUrl)};
+  var PROXY = ${JSON.stringify(proxyBase)};
+
+  function toAbsolute(url) {
+    if (!url || url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
+    if (url.startsWith('//')) return 'https:' + url;
+    try { return new URL(url, BASE).href; } catch(e) { return url; }
+  }
+
+  function proxyUrl(url) {
+    if (!url) return url;
+    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
+    if (url.startsWith(PROXY)) return url;
+    if (url.startsWith('/api/proxy')) return url;
+    return PROXY + encodeURIComponent(toAbsolute(url));
+  }
+
+  // Intercept all clicks on anchor tags
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el.tagName !== 'A') el = el.parentElement;
+    if (!el) return;
+    var href = el.getAttribute('href');
+    if (!href || href.startsWith('javascript:') || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.location.href = proxyUrl(href);
+  }, true);
+
+  // Intercept window.open
+  var _open = window.open;
+  window.open = function(url, target, features) {
+    if (url) window.location.href = proxyUrl(url);
+    return null;
+  };
+
+  // Intercept history.pushState and replaceState
+  var _push = history.pushState.bind(history);
+  var _replace = history.replaceState.bind(history);
+  history.pushState = function(state, title, url) {
+    if (url) {
+      var abs = toAbsolute(String(url));
+      if (!abs.startsWith(PROXY) && !abs.startsWith('/api/proxy')) {
+        window.location.href = proxyUrl(abs);
+        return;
+      }
+    }
+    return _push(state, title, url);
+  };
+  history.replaceState = function(state, title, url) {
+    if (url) {
+      var abs = toAbsolute(String(url));
+      if (!abs.startsWith(PROXY) && !abs.startsWith('/api/proxy')) {
+        window.location.replace(proxyUrl(abs));
+        return;
+      }
+    }
+    return _replace(state, title, url);
+  };
+
+  // Intercept fetch to rewrite URLs
+  var _fetch = window.fetch;
+  window.fetch = function(input, init) {
+    if (typeof input === 'string' && input.startsWith('http') && !input.startsWith(location.origin)) {
+      input = PROXY + encodeURIComponent(input);
+    } else if (input instanceof Request && input.url.startsWith('http') && !input.url.startsWith(location.origin)) {
+      input = new Request(PROXY + encodeURIComponent(input.url), input);
+    }
+    return _fetch(input, init);
+  };
+
+  // Intercept XMLHttpRequest
+  var _open2 = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    if (typeof url === 'string' && url.startsWith('http') && !url.startsWith(location.origin)) {
+      url = PROXY + encodeURIComponent(url);
+    }
+    var args = Array.prototype.slice.call(arguments);
+    args[1] = url;
+    return _open2.apply(this, args);
+  };
+})();
+</script>`;
+}
+
 function rewriteHtml(html: string, baseUrl: string, proxyBase: string): string {
   html = html.replace(/<base[^>]*>/gi, "");
 
@@ -64,6 +152,14 @@ function rewriteHtml(html: string, baseUrl: string, proxyBase: string): string {
       return `${before}${quote}${rewriteUrl(url, baseUrl, proxyBase)}${quote}${after}`;
     }
   );
+
+  // Inject navigation interceptor script
+  const injected = buildInjectedScript(baseUrl, proxyBase);
+  if (html.includes("</head>")) {
+    html = html.replace("</head>", `${injected}</head>`);
+  } else {
+    html = injected + html;
+  }
 
   return html;
 }
