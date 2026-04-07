@@ -14,6 +14,8 @@ const QUICK_LINKS = [
   { name: "Discord", url: "https://discord.com", icon: SiDiscord, color: "#5865F2" },
   { name: "Twitch", url: "https://www.twitch.tv", icon: SiTwitch, color: "#9146FF" },
   { name: "Netflix", url: "https://www.netflix.com", icon: SiNetflix, color: "#E50914" },
+  { name: "Daydream", url: "https://daydream.io", icon: Globe, color: "#7C3AED" },
+  { name: "Top Eagle", url: "https://topeagleservers.net", icon: Globe, color: "#D97706" },
 ];
 
 const suggestions = [
@@ -53,7 +55,7 @@ export default function Home() {
           {/* Quick Access Sites */}
           <div className="mt-10 w-full max-w-2xl">
             <p className="text-xs font-semibold text-muted-foreground/60 mb-3 uppercase tracking-wider text-center">Quick Access</p>
-            <div className="grid grid-cols-5 gap-2 sm:gap-3">
+            <div className="grid grid-cols-6 gap-2">
               {QUICK_LINKS.map((site) => {
                 const Icon = site.icon;
                 const proxyUrl = `/api/proxy?url=${encodeURIComponent(site.url)}`;
@@ -61,16 +63,16 @@ export default function Home() {
                   <a
                     key={site.name}
                     href={proxyUrl}
-                    data-testid={`quick-link-${site.name.toLowerCase().replace(/\s|\//g, "-")}`}
-                    className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white/60 border border-border/40 hover:bg-white hover:border-border hover:shadow-md transition-all cursor-pointer group"
+                    data-testid={`quick-link-${site.name.toLowerCase().replace(/[\s/]/g, "-")}`}
+                    className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl bg-white/60 border border-border/40 hover:bg-white hover:border-border hover:shadow-md transition-all cursor-pointer group"
                   >
                     <div
                       className="w-8 h-8 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${site.color}18` }}
+                      style={{ backgroundColor: `${site.color}20` }}
                     >
                       <Icon style={{ color: site.color }} className="w-4 h-4" />
                     </div>
-                    <span className="text-[10px] sm:text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors text-center leading-tight">
+                    <span className="text-[9px] sm:text-[10px] font-medium text-muted-foreground group-hover:text-foreground transition-colors text-center leading-tight">
                       {site.name}
                     </span>
                   </a>
@@ -80,7 +82,7 @@ export default function Home() {
           </div>
 
           {/* Suggestions */}
-          <div className="mt-8 flex flex-col items-center">
+          <div className="mt-6 flex flex-col items-center">
             <p className="text-xs font-medium text-muted-foreground/60 mb-3 uppercase tracking-wider">Try searching for</p>
             <div className="flex flex-wrap justify-center gap-2">
               {suggestions.map((suggestion) => (
