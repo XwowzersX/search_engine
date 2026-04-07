@@ -14,3 +14,27 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Searches the web and returns results
+ * @summary Search the web
+ */
+export const SearchQueryParams = zod.object({
+  q: zod.coerce.string().describe("Search query"),
+});
+
+export const SearchResponse = zod.object({
+  query: zod.string(),
+  results: zod.array(
+    zod.object({
+      title: zod.string(),
+      url: zod.string(),
+      description: zod.string(),
+      displayUrl: zod.string(),
+      favicon: zod.string().nullable(),
+    }),
+  ),
+  instantAnswer: zod.string().nullable(),
+  instantTitle: zod.string().nullable(),
+  instantUrl: zod.string().nullable(),
+});

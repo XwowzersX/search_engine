@@ -5,22 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface ErrorResponse {
-  error: string;
-}
-
-export interface SearchResult {
-  title: string;
-  url: string;
-  description: string;
-  displayUrl: string;
-  /** @nullable */
-  favicon: string | null;
-}
+import type { SearchResult } from "./searchResult";
 
 export interface SearchResults {
   query: string;
@@ -32,10 +17,3 @@ export interface SearchResults {
   /** @nullable */
   instantUrl: string | null;
 }
-
-export type SearchParams = {
-  /**
-   * Search query
-   */
-  q: string;
-};

@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: search
+    description: Search operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /search:
+    get:
+      operationId: search
+      tags: [search]
+      summary: Search the web
+      description: Searches the web and returns results
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +61,50 @@ components:
           type: string
       required:
         - status
-
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    SearchResult:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        description:
+          type: string
+        displayUrl:
+          type: string
+        favicon:
+          type: ["string", "null"]
+      required:
+        - title
+        - url
+        - description
+        - displayUrl
+        - favicon
+    SearchResults:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchResult"
+        instantAnswer:
+          type: ["string", "null"]
+        instantTitle:
+          type: ["string", "null"]
+        instantUrl:
+          type: ["string", "null"]
+      required:
+        - query
+        - results
+        - instantAnswer
+        - instantTitle
+        - instantUrl
