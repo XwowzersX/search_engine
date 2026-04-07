@@ -26,88 +26,87 @@ function rewriteUrl(url: string, base: string, proxyBase: string): string {
 }
 
 function buildInjectedScript(baseUrl: string, proxyBase: string): string {
+  const baseOrigin = new URL(baseUrl).origin;
   return `<script>
 (function() {
   var BASE = ${JSON.stringify(baseUrl)};
+  var BASE_ORIGIN = ${JSON.stringify(baseOrigin)};
   var PROXY = ${JSON.stringify(proxyBase)};
 
   function toAbsolute(url) {
-    if (!url || url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
+    if (!url) return url;
+    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
     if (url.startsWith('//')) return 'https:' + url;
     try { return new URL(url, BASE).href; } catch(e) { return url; }
   }
 
+  function needsProxy(url) {
+    if (!url) return false;
+    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return false;
+    if (url.startsWith(PROXY) || url.startsWith('/api/proxy')) return false;
+    return true;
+  }
+
   function proxyUrl(url) {
-    if (!url) return url;
-    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
-    if (url.startsWith(PROXY)) return url;
-    if (url.startsWith('/api/proxy')) return url;
     return PROXY + encodeURIComponent(toAbsolute(url));
   }
 
-  // Intercept all clicks on anchor tags
+  // Intercept link clicks — only intercept if it would navigate away from the proxy
   document.addEventListener('click', function(e) {
     var el = e.target;
     while (el && el.tagName !== 'A') el = el.parentElement;
     if (!el) return;
     var href = el.getAttribute('href');
-    if (!href || href.startsWith('javascript:') || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    window.location.href = proxyUrl(href);
+    if (!needsProxy(href)) return;
+    // Only intercept if it's an absolute URL or protocol-relative
+    if (href.startsWith('http') || href.startsWith('//')) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.location.href = proxyUrl(href);
+    }
   }, true);
 
-  // Intercept window.open
+  // Intercept window.open — redirect in same tab through proxy
   var _open = window.open;
   window.open = function(url, target, features) {
-    if (url) window.location.href = proxyUrl(url);
-    return null;
+    if (url && needsProxy(url)) {
+      window.location.href = proxyUrl(url);
+      return null;
+    }
+    return _open.apply(this, arguments);
   };
 
-  // Intercept history.pushState and replaceState
-  var _push = history.pushState.bind(history);
-  var _replace = history.replaceState.bind(history);
-  history.pushState = function(state, title, url) {
-    if (url) {
-      var abs = toAbsolute(String(url));
-      if (!abs.startsWith(PROXY) && !abs.startsWith('/api/proxy')) {
-        window.location.href = proxyUrl(abs);
-        return;
-      }
-    }
-    return _push(state, title, url);
-  };
-  history.replaceState = function(state, title, url) {
-    if (url) {
-      var abs = toAbsolute(String(url));
-      if (!abs.startsWith(PROXY) && !abs.startsWith('/api/proxy')) {
-        window.location.replace(proxyUrl(abs));
-        return;
-      }
-    }
-    return _replace(state, title, url);
-  };
-
-  // Intercept fetch to rewrite URLs
+  // Intercept fetch — route all cross-origin requests (including relative ones that map to the target origin) through proxy
   var _fetch = window.fetch;
   window.fetch = function(input, init) {
-    if (typeof input === 'string' && input.startsWith('http') && !input.startsWith(location.origin)) {
-      input = PROXY + encodeURIComponent(input);
-    } else if (input instanceof Request && input.url.startsWith('http') && !input.url.startsWith(location.origin)) {
-      input = new Request(PROXY + encodeURIComponent(input.url), input);
-    }
-    return _fetch(input, init);
+    try {
+      var url = typeof input === 'string' ? input : (input && input.url ? input.url : null);
+      if (url && needsProxy(url)) {
+        var abs = toAbsolute(url);
+        // Only proxy if the absolute URL points to the target site or an external site (not our own server)
+        if (abs.startsWith('http')) {
+          var proxied = PROXY + encodeURIComponent(abs);
+          input = typeof input === 'string' ? proxied : new Request(proxied, {method: input.method, headers: input.headers, body: input.body, mode: 'cors', credentials: 'omit'});
+        }
+      }
+    } catch(e) {}
+    return _fetch.call(window, input, init);
   };
 
-  // Intercept XMLHttpRequest
-  var _open2 = XMLHttpRequest.prototype.open;
+  // Intercept XMLHttpRequest — same logic
+  var _xhrOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url) {
-    if (typeof url === 'string' && url.startsWith('http') && !url.startsWith(location.origin)) {
-      url = PROXY + encodeURIComponent(url);
-    }
+    try {
+      if (url && needsProxy(String(url))) {
+        var abs = toAbsolute(String(url));
+        if (abs.startsWith('http')) {
+          url = PROXY + encodeURIComponent(abs);
+        }
+      }
+    } catch(e) {}
     var args = Array.prototype.slice.call(arguments);
     args[1] = url;
-    return _open2.apply(this, args);
+    return _xhrOpen.apply(this, args);
   };
 })();
 </script>`;
