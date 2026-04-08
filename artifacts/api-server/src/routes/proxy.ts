@@ -26,87 +26,78 @@ function rewriteUrl(url: string, base: string, proxyBase: string): string {
 }
 
 function buildInjectedScript(baseUrl: string, proxyBase: string): string {
-  const baseOrigin = new URL(baseUrl).origin;
   return `<script>
 (function() {
   var BASE = ${JSON.stringify(baseUrl)};
-  var BASE_ORIGIN = ${JSON.stringify(baseOrigin)};
   var PROXY = ${JSON.stringify(proxyBase)};
 
-  function toAbsolute(url) {
+  function toAbs(url) {
     if (!url) return url;
-    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return url;
+    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return null;
     if (url.startsWith('//')) return 'https:' + url;
-    try { return new URL(url, BASE).href; } catch(e) { return url; }
+    try { return new URL(url, BASE).href; } catch(e) { return null; }
   }
 
-  function needsProxy(url) {
+  function shouldProxy(url) {
     if (!url) return false;
-    if (url.startsWith('javascript:') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('#')) return false;
     if (url.startsWith(PROXY) || url.startsWith('/api/proxy')) return false;
-    return true;
+    var abs = toAbs(url);
+    if (!abs) return false;
+    return abs.startsWith('http');
   }
 
-  function proxyUrl(url) {
-    return PROXY + encodeURIComponent(toAbsolute(url));
+  function proxied(url) {
+    var abs = toAbs(url);
+    if (!abs) return url;
+    return PROXY + encodeURIComponent(abs);
   }
 
-  // Intercept link clicks — only intercept if it would navigate away from the proxy
+  // Intercept anchor clicks
   document.addEventListener('click', function(e) {
     var el = e.target;
     while (el && el.tagName !== 'A') el = el.parentElement;
     if (!el) return;
     var href = el.getAttribute('href');
-    if (!needsProxy(href)) return;
-    // Only intercept if it's an absolute URL or protocol-relative
-    if (href.startsWith('http') || href.startsWith('//')) {
-      e.preventDefault();
-      e.stopPropagation();
-      window.location.href = proxyUrl(href);
-    }
+    if (!href || !shouldProxy(href)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.location.href = proxied(href);
   }, true);
 
-  // Intercept window.open — redirect in same tab through proxy
-  var _open = window.open;
-  window.open = function(url, target, features) {
-    if (url && needsProxy(url)) {
-      window.location.href = proxyUrl(url);
+  // Intercept window.open — stay in same tab
+  var _winOpen = window.open;
+  window.open = function(url) {
+    if (url && shouldProxy(String(url))) {
+      window.location.href = proxied(String(url));
       return null;
     }
-    return _open.apply(this, arguments);
+    return _winOpen.apply(this, arguments);
   };
 
-  // Intercept fetch — route all cross-origin requests (including relative ones that map to the target origin) through proxy
+  // Intercept fetch — rewrite ALL URLs (relative and absolute) to go through proxy
   var _fetch = window.fetch;
   window.fetch = function(input, init) {
     try {
-      var url = typeof input === 'string' ? input : (input && input.url ? input.url : null);
-      if (url && needsProxy(url)) {
-        var abs = toAbsolute(url);
-        // Only proxy if the absolute URL points to the target site or an external site (not our own server)
-        if (abs.startsWith('http')) {
-          var proxied = PROXY + encodeURIComponent(abs);
-          input = typeof input === 'string' ? proxied : new Request(proxied, {method: input.method, headers: input.headers, body: input.body, mode: 'cors', credentials: 'omit'});
-        }
+      var url = typeof input === 'string' ? input
+              : (input instanceof Request ? input.url : null);
+      if (url && shouldProxy(url)) {
+        var p = proxied(url);
+        input = typeof input === 'string' ? p
+              : new Request(p, { method: input.method, headers: input.headers, body: input.body, mode: 'cors', credentials: 'omit' });
       }
     } catch(e) {}
     return _fetch.call(window, input, init);
   };
 
-  // Intercept XMLHttpRequest — same logic
+  // Intercept XMLHttpRequest
   var _xhrOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url) {
     try {
-      if (url && needsProxy(String(url))) {
-        var abs = toAbsolute(String(url));
-        if (abs.startsWith('http')) {
-          url = PROXY + encodeURIComponent(abs);
-        }
+      if (url && shouldProxy(String(url))) {
+        arguments[1] = proxied(String(url));
       }
     } catch(e) {}
-    var args = Array.prototype.slice.call(arguments);
-    args[1] = url;
-    return _xhrOpen.apply(this, args);
+    return _xhrOpen.apply(this, arguments);
   };
 })();
 </script>`;
@@ -152,9 +143,11 @@ function rewriteHtml(html: string, baseUrl: string, proxyBase: string): string {
     }
   );
 
-  // Inject navigation interceptor script
+  // Inject script as early as possible — right after <head> opening tag
   const injected = buildInjectedScript(baseUrl, proxyBase);
-  if (html.includes("</head>")) {
+  if (/<head[^>]*>/i.test(html)) {
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${injected}`);
+  } else if (html.includes("</head>")) {
     html = html.replace("</head>", `${injected}</head>`);
   } else {
     html = injected + html;
@@ -201,6 +194,7 @@ router.get("/proxy", async (req, res): Promise<void> => {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "Referer": targetUrl,
       },
       redirect: "follow",
     });
@@ -210,7 +204,7 @@ router.get("/proxy", async (req, res): Promise<void> => {
     res.removeHeader("x-frame-options");
     res.removeHeader("content-security-policy");
 
-    const safeHeaders = ["content-type", "content-length", "cache-control", "expires", "last-modified", "etag"];
+    const safeHeaders = ["content-type", "cache-control", "expires", "last-modified", "etag"];
     for (const header of safeHeaders) {
       const val = upstreamRes.headers.get(header);
       if (val) res.setHeader(header, val);
@@ -256,8 +250,8 @@ router.get("/proxy", async (req, res): Promise<void> => {
     h1 { font-size: 20px; font-weight: 700; color: #1e1e2e; margin-bottom: 10px; }
     p { font-size: 14px; color: #6b7280; line-height: 1.6; margin-bottom: 8px; }
     .url { font-size: 12px; color: #9ca3af; word-break: break-all; background: #f9fafb; border-radius: 8px; padding: 8px 12px; margin: 16px 0; }
-    .btn { display: inline-block; margin-top: 20px; padding: 10px 24px; background: #5046e4; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; }
-    .btn:hover { background: #3d35c8; }
+    .btn { display: inline-block; margin-top: 20px; padding: 10px 24px; background: #4285f4; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; }
+    .btn:hover { background: #3367d6; }
   </style>
 </head>
 <body>
@@ -266,7 +260,7 @@ router.get("/proxy", async (req, res): Promise<void> => {
     <h1>Could not load this page</h1>
     <p>${reason}</p>
     <div class="url">${targetUrl}</div>
-    <a class="btn" href="/">Go back to FreeSearch</a>
+    <a class="btn" href="/">Go back</a>
   </div>
 </body>
 </html>`);
